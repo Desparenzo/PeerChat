@@ -28,6 +28,9 @@ select option{color:#000}
 .b img,.b video{max-width:100%;border-radius:8px;display:block;margin-bottom:4px}
 .fb{display:flex;gap:6px;margin-top:4px}
 .fb a{background:#0005;color:#fff;padding:4px 10px;border-radius:8px;text-decoration:none;font-size:13px}
+#pg{flex:none;display:none;padding:6px 12px;background:var(--p);font-size:12px;color:#8a9aa9}
+.pbar{height:5px;background:#0e1621;border-radius:3px;margin-top:4px;overflow:hidden}
+.pbar i{display:block;height:100%;width:0;background:#2b7cd3}
 .cp{flex:none;display:flex;gap:6px;align-items:flex-end;padding:8px;margin-bottom:var(--gap);background:var(--p)}
 .cp textarea{flex:1;max-height:110px;resize:none;border:0;border-radius:20px;padding:10px 14px;background:#0e1621;color:inherit;font:inherit}
 .ov{position:fixed;inset:0;display:none;align-items:center;justify-content:center;flex-direction:column;gap:14px;background:#000c;z-index:9}
@@ -51,6 +54,7 @@ select option{color:#000}
   <div class="hd"><div class="t"><select id="sel"></select><div class="sub" id="sub"></div></div>
    <button class="ib" id="vc">📞</button><button class="ib" id="vv">🎥</button></div>
   <div id="msgs"></div>
+  <div id="pg"><div></div><div class="pbar"><i></i></div></div>
   <div class="cp"><button class="ib" id="att">📎</button><textarea id="inp" rows="1" placeholder="Message"></textarea><button class="ib" id="snd" style="background:#2b7cd3">➤</button></div>
  </div>
 </div>
@@ -110,13 +114,14 @@ function onData(c,d){
  if(d.t==='hi'){P.name=d.name||'?';c.send({t:'peers',l:Object.keys(peers).filter(i=>i!==c.peer)});render()}
  else if(d.t==='peers')d.l.forEach(connect);
  else if(d.t==='m')addMsg(d.g?'g':'p:'+P.name,{name:P.name,text:d.text,ts:d.ts});
- else if(d.t==='fm')files[d.id]={m:d,ch:[]};
- else if(d.t==='fc'){const f=files[d.id];f&&f.ch.push(d.d)}
- else if(d.t==='fe'){const f=files[d.id];if(!f)return;delete files[d.id];const m=f.m;
+ else if(d.t==='fm')files[d.id]={m:d,ch:[],got:0};
+ else if(d.t==='fc'){const f=files[d.id];if(f){f.ch.push(d.d);f.got+=d.d.byteLength||d.d.size||0;prog('Receiving '+f.m.n,Math.min(1,f.got/f.m.s))}}
+ else if(d.t==='fe'){const f=files[d.id];if(!f)return;delete files[d.id];prog();const m=f.m;
   addMsg(m.g?'g':'p:'+P.name,{name:P.name,ts:m.ts,f:{n:m.n,s:m.s,y:m.y||'',u:URL.createObjectURL(new Blob(f.ch,{type:m.y||''}))}})}
 }
 
 /* ---------- chat ---------- */
+function prog(l,p){const g=$('pg');if(!l){g.style.display='none';return}g.style.display='block';g.children[0].textContent=l+' '+Math.round(p*100)+'%';g.children[1].firstElementChild.style.width=p*100+'%'}
 const key=()=>cur==='g'?'g':'p:'+(peers[cur]?peers[cur].name:'');
 const targets=()=>cur==='g'?Object.values(peers).map(p=>p.c):(peers[cur]?[peers[cur].c]:[]);
 function render(){
@@ -157,10 +162,10 @@ async function sendFiles(list){
   addMsg(k,{me:1,name:myName,ts,f:{n:f.name,s:f.size,y,u:URL.createObjectURL(f)}});
   T.forEach(c=>c.send({t:'fm',id,n:f.name,s:f.size,y,g,ts}));
   for(let o=0;o<f.size;o+=65536){
-   const d=await f.slice(o,o+65536).arrayBuffer();
+   const d=await f.slice(o,o+65536).arrayBuffer();prog('Sending '+f.name,Math.min(1,(o+65536)/f.size));
    for(const c of T){while(c.dataChannel&&c.dataChannel.bufferedAmount>4e6)await sleep(25);try{c.send({t:'fc',id,d})}catch(e){}}
   }
-  T.forEach(c=>{try{c.send({t:'fe',id})}catch(e){}});
+  T.forEach(c=>{try{c.send({t:'fe',id})}catch(e){}});prog();
  }}
 $('sel').onchange=e=>{cur=e.target.value;render()};
 $('snd').onclick=sendText;
