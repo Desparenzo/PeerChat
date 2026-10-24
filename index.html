@@ -1,1352 +1,262 @@
-﻿<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>P2P Chat (LAN & Online)</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
-    <style>
-        /* Custom Scrollbar for all views */
-        .chat-scrollbar::-webkit-scrollbar { width: 8px; }
-        .chat-scrollbar::-webkit-scrollbar-track { background: rgba(31, 41, 55, 0.5); border-radius: 8px; margin: 4px; }
-        .chat-scrollbar::-webkit-scrollbar-thumb { background-color: rgba(107, 114, 128, 0.8); border-radius: 8px; border: 2px solid rgba(31, 41, 55, 0.5); }
-        .chat-scrollbar::-webkit-scrollbar-thumb:hover { background-color: rgba(156, 163, 175, 1); }
-        .chat-scrollbar { scrollbar-width: thin; scrollbar-color: rgba(107, 114, 128, 0.8) rgba(31, 41, 55, 0.5); }
-        
-        /* Hide scrollbar for input field */
-        .scrollbar-hide::-webkit-scrollbar { display: none; }
-        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
-
-        .fade-in { animation: fadeIn 0.3s ease-in-out; }
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes fillProgress {
-            0% { stroke-dashoffset: 63; }
-            100% { stroke-dashoffset: 0; }
-        }
-        .animate-fill {
-            stroke-dasharray: 63;
-            animation: fillProgress 1.5s ease-out forwards;
-        }
-        input, textarea { font-size: 16px !important; }
-    </style>
-</head>
-<body class="bg-gray-900 text-gray-100 fixed inset-0 overflow-hidden overscroll-none font-sans antialiased">
-
-    <!-- Toast Notification Container -->
-    <div id="toast-container" class="fixed top-4 left-1/2 transform -translate-x-1/2 z-[100] flex flex-col gap-2 pointer-events-none w-[90%] max-w-sm"></div>
-
-    <!-- Connection Request Modal -->
-    <div id="accept-modal" class="hidden fixed inset-0 z-[80] bg-black/80 backdrop-blur-sm items-center justify-center p-4 fade-in">
-        <div class="bg-gray-800 border border-gray-700 rounded-2xl p-6 w-full max-w-sm shadow-2xl flex flex-col items-center text-center space-y-6">
-            <div class="w-16 h-16 bg-blue-500/20 rounded-full flex items-center justify-center text-blue-400">
-                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
-            </div>
-            <div>
-                <h3 class="text-xl font-bold text-white mb-2">Incoming Connection</h3>
-                <p class="text-sm text-gray-400">Someone wants to join your chat room. Do you accept?</p>
-            </div>
-            <div class="flex gap-3 w-full">
-                <button onclick="handleConnection(false)" class="flex-1 py-3 px-4 rounded-xl bg-gray-700 hover:bg-gray-600 text-white font-medium transition-colors">Decline</button>
-                <button onclick="handleConnection(true)" class="flex-1 py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold shadow-lg shadow-emerald-600/20 transition-colors">Accept</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Incoming Video Call Modal -->
-    <div id="incoming-call-modal" class="hidden fixed inset-0 z-[90] bg-black/90 backdrop-blur-md items-center justify-center p-4 fade-in">
-        <div class="bg-gray-800 border border-gray-700 rounded-3xl p-6 w-full max-w-sm shadow-2xl flex flex-col items-center text-center space-y-6">
-            <div id="incoming-call-icon" class="w-20 h-20 bg-blue-500/20 rounded-full flex items-center justify-center text-blue-400 animate-pulse border-4 border-blue-500/30">
-                <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></svg>
-            </div>
-            <div>
-                <h3 id="incoming-call-title" class="text-2xl font-bold text-white mb-2">Video Call</h3>
-                <p class="text-sm text-gray-400">Your peer is calling you...</p>
-            </div>
-            <div class="flex gap-4 w-full mt-4">
-                <button onclick="answerCall(false)" class="flex-1 py-3 px-4 rounded-2xl bg-red-600 hover:bg-red-500 text-white font-bold transition-colors shadow-lg shadow-red-600/20 flex justify-center items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"/><line x1="22" y1="2" x2="2" y2="22"/></svg>
-                </button>
-                <button onclick="answerCall(true)" class="flex-1 py-3 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold shadow-lg shadow-emerald-600/20 transition-colors flex justify-center items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></svg>
-                </button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Shared Media Modal -->
-    <div id="media-modal" class="hidden fixed inset-0 z-[110] bg-black/90 backdrop-blur-md items-center justify-center p-4 fade-in">
-        <div class="bg-gray-800 border border-gray-700 rounded-3xl w-full max-w-lg shadow-2xl flex flex-col max-h-[85vh] overflow-hidden">
-            <div class="flex justify-between items-center p-5 border-b border-gray-700 bg-gray-900/50 shrink-0">
-                <h3 class="text-xl font-bold text-white flex items-center gap-3">
-                    <div class="bg-purple-500/20 p-2 rounded-lg text-purple-400">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
-                    </div>
-                    Shared Media
-                </h3>
-                <button onclick="closeMediaModal()" class="text-gray-400 hover:text-white p-2 bg-gray-800 hover:bg-gray-700 rounded-full transition-colors">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-                </button>
-            </div>
-            <div class="p-4 border-b border-gray-700 bg-gray-800 flex justify-between items-center shrink-0 shadow-sm z-10">
-                <span class="text-sm font-medium text-gray-400" id="media-count">0 files</span>
-                <button onclick="downloadAllMedia()" class="bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold py-2.5 px-5 rounded-xl transition-all flex items-center gap-2 shadow-lg shadow-blue-900/20 active:scale-95">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
-                    Download All
-                </button>
-            </div>
-            <div id="media-list" class="flex-1 overflow-y-auto p-4 space-y-3 chat-scrollbar bg-[#0b141a]">
-                <!-- Media items injected here -->
-            </div>
-        </div>
-    </div>
-
-    <!-- Video Call Overlay -->
-    <div id="video-modal" class="hidden fixed inset-0 z-[70] bg-black items-center justify-center flex-col w-full h-full fade-in">
-        
-        <!-- Audio-Only UI Placeholder -->
-        <div id="audio-only-ui" class="hidden flex-col items-center justify-center w-full h-full text-white bg-gray-900 z-10">
-            <div class="w-32 h-32 bg-emerald-500/20 rounded-full flex items-center justify-center animate-pulse mb-6 shadow-[0_0_40px_rgba(16,185,129,0.3)]">
-                <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-emerald-400"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
-            </div>
-            <h2 class="text-3xl font-bold tracking-wider">Voice Call</h2>
-            <p class="text-emerald-400 mt-2 font-medium">End-to-End Encrypted</p>
-        </div>
-
-        <video id="remote-video" class="w-full h-full object-contain bg-black" autoplay playsinline></video>
-        <video id="local-video" class="absolute bottom-28 right-4 w-28 sm:w-40 rounded-xl shadow-[0_0_20px_rgba(0,0,0,0.8)] border border-gray-700 bg-gray-900 object-cover z-10 aspect-video" autoplay playsinline muted></video>
-        
-        <!-- Call Controls -->
-        <div class="absolute bottom-8 left-1/2 transform -translate-x-1/2 flex gap-4 z-20 bg-gray-900/80 p-3 rounded-full backdrop-blur-md border border-gray-700 shadow-2xl">
-            <button onclick="toggleVideoMute()" id="btn-mute" class="bg-gray-700 hover:bg-gray-600 text-white p-3.5 rounded-full transition-colors">
-                <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
-            </button>
-            <button onclick="endVideoCall()" class="bg-red-600 hover:bg-red-500 text-white p-3.5 px-6 rounded-full font-bold transition-colors flex items-center gap-2 shadow-lg shadow-red-600/30">
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"/><line x1="22" y1="2" x2="2" y2="22"/></svg>
-                End
-            </button>
-        </div>
-    </div>
-
-    <!-- Main App Container -->
-    <div class="absolute inset-0 mx-auto w-full max-w-2xl bg-gray-800 shadow-2xl flex flex-col overflow-hidden sm:border-x sm:border-gray-700">
-        
-        <!-- Header -->
-        <header class="bg-gray-950 px-4 sm:px-6 py-3 flex items-center justify-between border-b border-gray-700 shrink-0">
-            <div class="flex items-center gap-3">
-                <div class="w-3 h-3 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]" id="status-indicator"></div>
-                <h1 class="font-bold text-lg sm:text-xl tracking-wide text-white">Peer<span class="text-blue-500">Chat</span></h1>
-            </div>
-            <div class="flex items-center gap-1 sm:gap-2">
-                <button id="btn-show-media" onclick="openMediaModal()" class="hidden bg-purple-600/20 text-purple-400 hover:bg-purple-600 hover:text-white p-2.5 rounded-full transition-colors" title="Shared Media">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
-                </button>
-                <button id="btn-voice-call" onclick="initiateCall('audio')" class="hidden bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600 hover:text-white p-2.5 rounded-full transition-colors" title="Start Voice Call">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
-                </button>
-                <button id="btn-video-call" onclick="initiateCall('video')" class="hidden bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white p-2.5 rounded-full transition-colors" title="Start Video Call">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></svg>
-                </button>
-                <div id="connection-status" class="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-red-400 bg-red-500/10 px-3 py-1.5 rounded-full ml-2">
-                    Disconnected
-                </div>
-            </div>
-        </header>
-
-        <!-- Hidden Keep-Alive Audio (Base64 Silent WAV) -->
-        <audio id="keepalive-audio" loop playsinline preload="auto" class="hidden">
-            <!-- Tiny 44-byte silent WAV file -->
-            <source src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAVFYAAFRWAAABAAgAZGF0YQAAAAA=" type="audio/wav">
-        </audio>
-
-        <!-- View: Home (Select Role) -->
-        <div id="view-home" class="flex-1 flex flex-col items-center justify-center p-6 space-y-8 fade-in overflow-y-auto chat-scrollbar min-h-0">
-            <div class="text-center space-y-2">
-                <h2 class="text-2xl font-semibold text-white">Secure, Serverless Chat</h2>
-                <p class="text-gray-400 max-w-md mx-auto text-sm">
-                    Connect directly to another device using a room code.
-                </p>
-            </div>
-            
-            <div class="grid grid-cols-1 gap-4 w-full max-w-sm">
-                <div class="flex flex-col gap-2">
-                    <button onclick="showHostView()" class="group relative bg-blue-600 hover:bg-blue-500 transition-all duration-200 p-5 sm:p-6 rounded-2xl flex items-center gap-4 border border-blue-400/30 shadow-lg shadow-blue-900/20">
-                        <div class="bg-white/10 p-3 rounded-xl shrink-0">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-white"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-                        </div>
-                        <div class="text-left w-full flex justify-between items-center">
-                            <div>
-                                <span class="block font-bold text-lg text-white">Host a Chat</span>
-                                <span class="block text-xs text-blue-200 mt-0.5">Create a room code</span>
-                            </div>
-                        </div>
-                    </button>
-                    <!-- Auto Accept Toggle -->
-                    <div class="flex items-center justify-between px-4 py-2 bg-gray-900/50 rounded-xl border border-gray-700/50">
-                        <span class="text-xs text-gray-400 font-medium">Auto-Accept Incoming Joins</span>
-                        <button id="auto-accept-toggle" onclick="toggleAutoAccept()" class="w-10 h-5 rounded-full bg-gray-600 relative transition-colors duration-300 focus:outline-none shadow-inner flex items-center px-0.5">
-                            <div id="auto-accept-knob" class="w-4 h-4 rounded-full bg-white shadow-md transform translate-x-0 transition-transform duration-300"></div>
-                        </button>
-                    </div>
-                </div>
-                
-                <button onclick="showJoinView()" class="group relative bg-emerald-600 hover:bg-emerald-500 transition-all duration-200 p-5 sm:p-6 rounded-2xl flex items-center gap-4 border border-emerald-400/30 shadow-lg shadow-emerald-900/20">
-                    <div class="bg-white/10 p-3 rounded-xl shrink-0">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-white"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
-                    </div>
-                    <div class="text-left">
-                        <span class="block font-bold text-lg text-white">Join a Chat</span>
-                        <span class="block text-xs text-emerald-200 mt-0.5">Enter a room code</span>
-                    </div>
-                </button>
-            </div>
-
-            <!-- Network Mode Toggle -->
-            <div class="flex items-center justify-center gap-3 mt-4 bg-gray-900/80 p-3.5 rounded-2xl border border-gray-700/80 w-full max-w-sm mx-auto shadow-inner">
-                <span class="text-xs font-medium text-gray-500 w-20 text-right transition-colors" id="label-lan" title="Devices must be on the same Wi-Fi">LAN Only</span>
-                <button id="network-toggle" onclick="toggleNetworkMode()" class="w-14 h-7 rounded-full bg-blue-600 relative transition-colors duration-300 focus:outline-none shadow-inner flex items-center px-1">
-                    <div id="network-toggle-knob" class="w-5 h-5 rounded-full bg-white shadow-md transform translate-x-7 transition-transform duration-300"></div>
-                </button>
-                <span class="text-xs font-bold text-blue-400 w-20 text-left transition-colors" id="label-internet" title="Connect across different networks">Internet</span>
-            </div>
-        </div>
-
-        <!-- View: Host Setup -->
-        <div id="view-host" class="hidden flex-1 flex-col p-4 sm:p-6 overflow-y-auto chat-scrollbar fade-in min-h-0">
-            <button onclick="resetApp()" class="text-gray-400 hover:text-white mb-6 flex items-center gap-2 w-fit text-sm transition-colors py-2">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg> Back
-            </button>
-            
-            <div class="flex-1 flex flex-col items-center justify-center max-w-md mx-auto w-full pb-10">
-                <div class="bg-blue-500/20 p-4 rounded-full mb-6">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-blue-400"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-                </div>
-                
-                <h2 class="text-2xl font-bold mb-2 text-white text-center">Your Room Code</h2>
-                <p class="text-gray-400 text-sm text-center mb-8">Share this code with your friend to connect.</p>
-
-                <div class="w-full bg-gray-900 border border-gray-700 rounded-2xl p-4 sm:p-6 relative group mb-8 shadow-inner flex flex-col items-center gap-4">
-                    <input type="text" id="host-id-input" placeholder="Type a custom code..." class="w-full bg-transparent text-center text-3xl sm:text-4xl font-mono font-bold tracking-widest text-blue-400 focus:outline-none focus:border-b focus:border-blue-500 transition-colors pb-2" />
-                    
-                    <button id="btn-start-host" onclick="startHosting()" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl transition-all shadow-lg shadow-blue-900/20">
-                        Start Hosting
-                    </button>
-                    
-                    <button onclick="copyCode()" class="absolute top-4 right-4 bg-gray-800 hover:bg-gray-700 text-white p-2.5 rounded-lg border border-gray-600 transition-colors shadow-sm" title="Copy code">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
-                    </button>
-                </div>
-
-                <div id="host-waiting-state" class="hidden flex items-center gap-3 text-sm text-gray-400">
-                    <svg class="animate-spin h-5 w-5 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                    Waiting for someone to join...
-                </div>
-            </div>
-        </div>
-
-        <!-- View: Join Setup -->
-        <div id="view-join" class="hidden flex-1 flex-col p-4 sm:p-6 overflow-y-auto chat-scrollbar fade-in min-h-0">
-            <button onclick="resetApp()" class="text-gray-400 hover:text-white mb-6 flex items-center gap-2 w-fit text-sm transition-colors py-2">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg> Back
-            </button>
-            
-            <div class="flex-1 flex flex-col items-center justify-center max-w-md mx-auto w-full pb-10">
-                <div class="bg-emerald-500/20 p-4 rounded-full mb-6">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-emerald-400"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
-                </div>
-
-                <h2 class="text-2xl font-bold mb-2 text-white text-center">Join a Room</h2>
-                <p class="text-gray-400 text-sm text-center mb-8">Enter the room code provided by the host.</p>
-
-                <div class="w-full space-y-6">
-                    <input type="text" id="join-id-input" placeholder="e.g. secretroom123" class="w-full bg-gray-900 border border-gray-700 rounded-2xl p-4 text-center text-2xl sm:text-3xl font-mono font-bold tracking-wider text-emerald-400 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all shadow-inner placeholder-gray-700">
-                    
-                    <button onclick="joinRoom()" id="btn-join" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-emerald-900/20 flex items-center justify-center gap-2">
-                        Connect to Host
-                    </button>
-
-                    <p id="join-status" class="text-sm text-center text-emerald-400 hidden animate-pulse">Requesting connection...</p>
-                </div>
-            </div>
-        </div>
-
-        <!-- View: Chat (Reversed flow: Input at top, newest messages at top) -->
-        <div id="view-chat" class="hidden flex-1 flex flex-col fade-in relative bg-[#0b141a] overflow-hidden min-h-0">
-            <!-- Background Pattern -->
-            <div class="absolute inset-0 opacity-5 pointer-events-none" style="background-image: url('data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'#ffffff\' fill-opacity=\'1\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E');"></div>
-            
-            <!-- Input Area (Moved to top, shadow and border adjusted) -->
-            <div class="p-3 sm:p-4 bg-gray-800/95 backdrop-blur-md border-b border-gray-700 relative z-10 shrink-0 shadow-[0_4px_10px_rgba(0,0,0,0.1)]">
-                <form id="chat-form" onsubmit="sendMessage(event)" class="flex gap-2 items-end max-w-2xl mx-auto w-full">
-                    
-                    <button type="button" onclick="document.getElementById('file-input').click()" class="text-gray-400 hover:text-white p-2.5 shrink-0 mb-1 transition-colors touch-manipulation">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
-                    </button>
-                    <input type="file" id="file-input" class="hidden" multiple onchange="handleFileUpload(event)">
-
-                    <div class="flex-1 bg-gray-900 border border-gray-600 rounded-3xl overflow-hidden focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 transition-all flex items-end shadow-inner">
-                        <textarea id="chat-input" rows="1" class="w-full bg-transparent text-gray-100 px-4 py-3 focus:outline-none resize-none max-h-32 scrollbar-hide" placeholder="Message..." oninput="autoResizeTextarea(this)" onkeydown="handleEnter(event)"></textarea>
-                    </div>
-
-                    <button type="button" onclick="toggleTTS()" id="btn-tts-toggle" class="text-gray-400 hover:text-white p-2.5 shrink-0 mb-1 transition-colors touch-manipulation rounded-full" title="Read messages aloud">
-                        <svg id="icon-tts-off" xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line></svg>
-                        <svg id="icon-tts-on" class="hidden text-blue-400" xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>
-                    </button>
-
-                    <button type="submit" class="bg-blue-600 hover:bg-blue-500 active:scale-95 text-white p-3 rounded-full transition-all shrink-0 mb-0.5 flex items-center justify-center h-[48px] w-[48px] shadow-md touch-manipulation">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="-ml-1"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
-                    </button>
-                </form>
-            </div>
-
-            <!-- Messages Area (flex-1 ensures it grows below the input, overflow-y-auto allows scroll) -->
-            <div id="chat-messages" class="flex-1 overflow-y-auto p-4 space-y-4 relative z-10 chat-scrollbar min-h-0 pb-4">
-                <div class="flex justify-center my-2">
-                    <span class="bg-gray-800/80 text-gray-400 text-xs px-3 py-1.5 rounded-full backdrop-blur-sm border border-gray-700/50 shadow-sm text-center max-w-[90%]">
-                        Connection accepted. End-to-end encrypted.
-                    </span>
-                </div>
-                <!-- Messages injected here -->
-            </div>
-        </div>
-
-    </div>
-
-    <script>
-        // --- State ---
-        let peer = null;
-        let conn = null;
-        let pendingConn = null;
-        let myIdCode = "";
-        
-        // Video State
-        let localStream = null;
-        let currentCall = null;
-        let incomingCallObj = null;
-        let isVideoMuted = false;
-        let activeCallType = 'video';
-        let isTTSActive = false;
-        let wakeLockObj = null;
-        let useInternet = true;
-        let autoAccept = false;
-        
-        // Heartbeat State
-        let heartbeatInterval = null;
-        let lastHeartbeat = Date.now();
-        let incomingFiles = {};
-        
-        // Media Vault State
-        let sharedMedia = [];
-
-        // --- Network & Configuration Logic ---
-        function toggleAutoAccept() {
-            autoAccept = !autoAccept;
-            const toggle = document.getElementById('auto-accept-toggle');
-            const knob = document.getElementById('auto-accept-knob');
-            if (autoAccept) {
-                toggle.classList.replace('bg-gray-600', 'bg-emerald-500');
-                knob.classList.replace('translate-x-0', 'translate-x-5');
-                showToast("Auto-Accept enabled", "success");
-            } else {
-                toggle.classList.replace('bg-emerald-500', 'bg-gray-600');
-                knob.classList.replace('translate-x-5', 'translate-x-0');
-            }
-        }
-
-        function toggleNetworkMode() {
-            useInternet = !useInternet;
-            const toggle = document.getElementById('network-toggle');
-            const knob = document.getElementById('network-toggle-knob');
-            const lblLan = document.getElementById('label-lan');
-            const lblInt = document.getElementById('label-internet');
-
-            if (useInternet) {
-                toggle.classList.remove('bg-gray-600');
-                toggle.classList.add('bg-blue-600');
-                knob.classList.remove('translate-x-0');
-                knob.classList.add('translate-x-7');
-                lblLan.className = "text-xs font-medium text-gray-500 w-20 text-right transition-colors";
-                lblInt.className = "text-xs font-bold text-blue-400 w-20 text-left transition-colors";
-                showToast("Internet Mode: Connect globally via STUN servers", "success");
-            } else {
-                toggle.classList.remove('bg-blue-600');
-                toggle.classList.add('bg-gray-600');
-                knob.classList.remove('translate-x-7');
-                knob.classList.add('translate-x-0');
-                lblLan.className = "text-xs font-bold text-emerald-400 w-20 text-right transition-colors";
-                lblInt.className = "text-xs font-medium text-gray-500 w-20 text-left transition-colors";
-                showToast("LAN Mode: Restricted strictly to local network", "warning");
-            }
-        }
-
-        function getPeerConfig() {
-            if (useInternet) {
-                return {
-                    config: {
-                        iceServers: [
-                            { urls: 'stun:stun.l.google.com:19302' },
-                            { urls: 'stun:stun1.l.google.com:19302' },
-                            { urls: 'stun:stun2.l.google.com:19302' },
-                            { urls: 'stun:global.stun.twilio.com:3478' }, // Fallback highly reliable STUN
-                            // TURN servers are REQUIRED to bypass Mobile Data (CGNAT/Symmetric NAT) strict firewalls
-                            {
-                                urls: 'turn:openrelay.metered.ca:80',
-                                username: 'openrelayproject',
-                                credential: 'openrelayproject'
-                            },
-                            {
-                                urls: 'turn:openrelay.metered.ca:443',
-                                username: 'openrelayproject',
-                                credential: 'openrelayproject'
-                            },
-                            {
-                                urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-                                username: 'openrelayproject',
-                                credential: 'openrelayproject'
-                            }
-                        ],
-                        iceCandidatePoolSize: 10 // Pre-gather candidates for slow networks
-                    },
-                    pingInterval: 5000, // PeerJS native ping interval
-                    debug: 1
-                };
-            } else {
-                return {
-                    config: {
-                        iceServers: [] // Empty forces local network routing only
-                    },
-                    pingInterval: 5000,
-                    debug: 1
-                };
-            }
-        }
-
-        // --- Keep-Alive / Background Logic ---
-        async function startKeepAlive() {
-            // 1. Play silent audio trick to prevent OS from freezing JS in the background
-            try {
-                const audio = document.getElementById('keepalive-audio');
-                audio.volume = 0; // Ensure it's muted just in case
-                await audio.play();
-            } catch (err) {
-                console.warn("Silent keep-alive audio blocked by browser:", err);
-            }
-            
-            // 2. Request Screen Wake Lock (keeps screen from turning off while app is open)
-            try {
-                if ('wakeLock' in navigator) {
-                    wakeLockObj = await navigator.wakeLock.request('screen');
-                }
-            } catch (err) {
-                console.warn("Wake lock failed/unsupported:", err);
-            }
-        }
-
-        function stopKeepAlive() {
-            try {
-                const audio = document.getElementById('keepalive-audio');
-                audio.pause();
-                audio.currentTime = 0;
-            } catch (err) {}
-            
-            if (wakeLockObj !== null) {
-                wakeLockObj.release().catch(()=>{});
-                wakeLockObj = null;
-            }
-        }
-
-        // Re-request wake lock if user returns to the tab
-        document.addEventListener('visibilitychange', async () => {
-            if (wakeLockObj !== null && document.visibilityState === 'visible') {
-                try {
-                    wakeLockObj = await navigator.wakeLock.request('screen');
-                } catch (err) {}
-            }
-        });
-
-        // --- Custom Heartbeat Engine for Slow Connections ---
-        function startHeartbeat() {
-            clearInterval(heartbeatInterval);
-            lastHeartbeat = Date.now();
-            
-            heartbeatInterval = setInterval(() => {
-                if (conn && conn.open) {
-                    try {
-                        conn.send({ type: 'system', action: 'ping' });
-                    } catch (e) {}
-                }
-                
-                const timeSinceLastMsg = Date.now() - lastHeartbeat;
-                if (timeSinceLastMsg > 25000 && timeSinceLastMsg < 30000) {
-                    showToast("Connection is very slow or dropping...", "warning");
-                } else if (timeSinceLastMsg > 60000) {
-                    // Massive 60s timeout allowance for terrible networks
-                    showToast("Connection timed out completely.", "error");
-                    resetApp();
-                }
-            }, 5000);
-        }
-
-        // --- Utility ---
-        function generate10Digit() {
-            return Math.floor(1000000000 + Math.random() * 9000000000).toString();
-        }
-
-        function switchView(viewId) {
-            ['view-home', 'view-host', 'view-join', 'view-chat'].forEach(id => {
-                document.getElementById(id).classList.add('hidden');
-                document.getElementById(id).classList.remove('flex');
-            });
-            document.getElementById(viewId).classList.remove('hidden');
-            if (viewId !== 'view-chat') {
-                 document.getElementById(viewId).classList.add('flex');
-            }
-        }
-
-        function resetApp() {
-            endVideoCall(true); // Stop any active streams
-            stopKeepAlive(); // Stop background processes
-            clearInterval(heartbeatInterval); // Stop heartbeats
-            if (conn) conn.close();
-            if (peer) peer.destroy();
-            window.speechSynthesis.cancel(); // Stop TTS if talking
-            peer = null;
-            conn = null;
-            pendingConn = null;
-            sharedMedia = [];
-            
-            document.getElementById('join-id-input').value = '';
-            document.getElementById('btn-join').disabled = false;
-            document.getElementById('btn-join').innerHTML = 'Connect to Host';
-            document.getElementById('join-status').classList.add('hidden');
-            document.getElementById('accept-modal').classList.add('hidden');
-            document.getElementById('accept-modal').classList.remove('flex');
-
-            document.getElementById('chat-messages').innerHTML = `
-                <div class="flex justify-center my-2">
-                    <span class="bg-gray-800/80 text-gray-400 text-xs px-3 py-1.5 rounded-full backdrop-blur-sm border border-gray-700/50 text-center">
-                        Connection accepted. End-to-end encrypted.
-                    </span>
-                </div>`;
-
-            updateConnectionStatus('disconnected');
-            switchView('view-home');
-        }
-
-        // Sets up global Peer events
-        function setupPeerEvents(p) {
-            p.on('call', (call) => {
-                incomingCallObj = call;
-                activeCallType = call.metadata?.type || 'video';
-                
-                const title = document.getElementById('incoming-call-title');
-                const iconContainer = document.getElementById('incoming-call-icon');
-                
-                if (activeCallType === 'audio') {
-                    title.innerText = "Voice Call";
-                    iconContainer.className = "w-20 h-20 bg-emerald-500/20 rounded-full flex items-center justify-center text-emerald-400 animate-pulse border-4 border-emerald-500/30";
-                    iconContainer.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>`;
-                } else {
-                    title.innerText = "Video Call";
-                    iconContainer.className = "w-20 h-20 bg-blue-500/20 rounded-full flex items-center justify-center text-blue-400 animate-pulse border-4 border-blue-500/30";
-                    iconContainer.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></svg>`;
-                }
-
-                document.getElementById('incoming-call-modal').classList.remove('hidden');
-                document.getElementById('incoming-call-modal').classList.add('flex');
-            });
-        }
-
-        // --- Host Flow ---
-        function showHostView() {
-            switchView('view-host');
-            document.getElementById('host-id-input').value = generate10Digit();
-            document.getElementById('host-id-input').readOnly = false;
-            document.getElementById('btn-start-host').classList.remove('hidden');
-            document.getElementById('host-waiting-state').classList.add('hidden');
-        }
-
-        function startHosting() {
-            myIdCode = document.getElementById('host-id-input').value.trim();
-            if (!myIdCode) return showToast("Please enter a room code.", "error");
-            if (myIdCode.length < 3) return showToast("Room code too short.", "warning");
-
-            document.getElementById('host-id-input').readOnly = true;
-            document.getElementById('btn-start-host').classList.add('hidden');
-            document.getElementById('host-waiting-state').classList.remove('hidden');
-
-            startKeepAlive();
-            
-            peer = new Peer(myIdCode, getPeerConfig());
-            setupPeerEvents(peer);
-            
-            peer.on('open', (id) => console.log('My peer ID is: ' + id));
-
-            peer.on('connection', (connection) => {
-                // Reject if already connected
-                if (conn && (conn.open || conn._isActuallyOpen)) {
-                    connection.on('open', () => {
-                        connection.send({ type: 'system', action: 'declined' });
-                        setTimeout(() => connection.close(), 500);
-                    });
-                    return;
-                }
-
-                pendingConn = connection;
-
-                // Listen for open event immediately! (Fixes hanging if opened before accept)
-                pendingConn.on('open', () => {
-                    pendingConn._isActuallyOpen = true;
-                    if (pendingConn._userAccepted && !pendingConn._proceeded) {
-                        pendingConn._proceeded = true;
-                        proceedToChatHost();
-                    }
-                });
-
-                // Auto-hide modal if peer drops before we accept
-                pendingConn.on('close', () => {
-                    if (pendingConn && !pendingConn._userAccepted) {
-                        document.getElementById('accept-modal').classList.add('hidden');
-                        document.getElementById('accept-modal').classList.remove('flex');
-                        showToast("Peer cancelled request.", "warning");
-                        pendingConn = null;
-                    }
-                });
-
-                if (autoAccept) {
-                    handleConnection(true);
-                } else {
-                    document.getElementById('accept-modal').classList.remove('hidden');
-                    document.getElementById('accept-modal').classList.add('flex');
-                }
-            });
-
-            peer.on('error', (err) => {
-                showToast(err.type === 'unavailable-id' ? 'ID conflict, please change code and retry' : 'Connection error', 'error');
-                resetApp();
-            });
-        }
-
-        function proceedToChatHost() {
-            try {
-                conn.send({ type: 'system', action: 'accepted' });
-            } catch(e) { console.warn("Initial accept failed", e); }
-            updateConnectionStatus('connected');
-            switchView('view-chat');
-            showToast('Connection established!');
-            startHeartbeat();
-        }
-
-        function handleConnection(accept) {
-            document.getElementById('accept-modal').classList.add('hidden');
-            document.getElementById('accept-modal').classList.remove('flex');
-
-            if (!pendingConn) return;
-
-            if (accept) {
-                startKeepAlive(); // Ensure keep-alive is active
-                conn = pendingConn;
-                conn._userAccepted = true;
-                setupConnectionListeners(conn);
-                
-                if (conn.open || conn._isActuallyOpen) {
-                    if (!conn._proceeded) {
-                        conn._proceeded = true;
-                        proceedToChatHost();
-                    }
-                } else {
-                    showToast("Negotiating secure tunnel... Please wait", "warning");
-                    
-                    // Failsafe timeout if network strictly blocks P2P
-                    setTimeout(() => {
-                        if (conn && !conn.open && !conn._isActuallyOpen) {
-                            showToast("Connection timeout. Peer network is strictly blocking P2P.", "error");
-                            resetApp();
-                        }
-                    }, 20000);
-                }
-            } else {
-                if (pendingConn.open || pendingConn._isActuallyOpen) {
-                    pendingConn.send({ type: 'system', action: 'declined' });
-                    setTimeout(() => pendingConn.close(), 500);
-                } else {
-                    pendingConn.on('open', () => {
-                        pendingConn.send({ type: 'system', action: 'declined' });
-                        setTimeout(() => pendingConn.close(), 500);
-                    });
-                }
-                pendingConn = null;
-                showToast('Connection declined', 'warning');
-            }
-        }
-
-        // --- Join Flow ---
-        function showJoinView() {
-            switchView('view-join');
-        }
-
-        function joinRoom() {
-            const targetId = document.getElementById('join-id-input').value.trim();
-            if (targetId.length < 3) return showToast("Room code too short.", "error");
-
-            document.getElementById('btn-join').disabled = true;
-            document.getElementById('btn-join').innerHTML = `<svg class="animate-spin -ml-1 mr-2 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Connecting...`;
-            document.getElementById('join-status').classList.remove('hidden');
-
-            startKeepAlive(); // Keep alive while attempting to connect
-            peer = new Peer(getPeerConfig()); 
-            setupPeerEvents(peer);
-            
-            peer.on('open', () => {
-                // Removing '{ reliable: true }' as it uses a buggy PeerJS shim that drops on slow networks
-                conn = peer.connect(targetId); 
-                
-                conn.on('open', () => {
-                    conn._isActuallyOpen = true;
-                });
-
-                setupConnectionListeners(conn);
-
-                // Failsafe timeout for joiner if host never accepts or STUN fails
-                setTimeout(() => {
-                    if (conn && !conn.open && !conn._isActuallyOpen) {
-                        showToast("Connection timed out. Network is blocking or Host unresponsive.", "error");
-                        resetApp();
-                    }
-                }, 25000);
-            });
-
-            peer.on('error', (err) => {
-                showToast('Failed to find host.', 'error');
-                resetApp();
-            });
-        }
-
-        // --- Shared Connection Logic ---
-        function setupConnectionListeners(connection) {
-            connection.on('data', (data) => {
-                lastHeartbeat = Date.now(); // Any incoming data resets the timeout clock
-                
-                if (data.type === 'system') {
-                    if (data.action === 'ping') {
-                        if (conn && conn.open) conn.send({ type: 'system', action: 'pong' });
-                        return;
-                    } else if (data.action === 'pong') {
-                        return; // Just updating lastHeartbeat is enough
-                    } else if (data.action === 'ack') {
-                        // Mark message as delivered
-                        const statusSpan = document.getElementById(`status-${data.msgId}`);
-                        if (statusSpan) {
-                            const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                            statusSpan.innerHTML = `
-                                ${time}
-                                <svg class="w-3.5 h-3.5 text-emerald-400 -ml-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-                                    <polyline points="20 6 9 17 4 12"></polyline>
-                                </svg>
-                                <span class="text-emerald-400 text-[10px] uppercase tracking-wider font-bold">Delivered</span>
-                            `;
-                        }
-                    } else if (data.action === 'accepted') {
-                        updateConnectionStatus('connected');
-                        switchView('view-chat');
-                        showToast('Host accepted connection!');
-                        startHeartbeat();
-                    } else if (data.action === 'declined') {
-                        showToast('Host declined connection.', 'error');
-                        resetApp();
-                    }
-                } else if (data.type === 'chat') {
-                    appendMessage(data.text, 'received');
-                    if (data.id) conn.send({ type: 'system', action: 'ack', msgId: data.id });
-                    
-                    if (isTTSActive) {
-                        const utterance = new SpeechSynthesisUtterance(data.text);
-                        window.speechSynthesis.speak(utterance);
-                    }
-                } else if (data.type === 'file-start') {
-                    incomingFiles[data.msgId] = {
-                        chunks: [],
-                        receivedChunks: 0,
-                        totalChunks: data.totalChunks,
-                        fileName: data.fileName,
-                        fileType: data.fileType,
-                        fileSize: data.fileSize,
-                        lastReportedProgress: -1
-                    };
-                    createProgressBubble(data.msgId, 'received', data.fileName, 'Receiving...', data.fileSize);
-                } else if (data.type === 'file-chunk') {
-                    const fileObj = incomingFiles[data.msgId];
-                    if (fileObj) {
-                        fileObj.chunks[data.index] = data.data; 
-                        fileObj.receivedChunks++;
-                        const progress = Math.floor((fileObj.receivedChunks / fileObj.totalChunks) * 100);
-                        if (progress > fileObj.lastReportedProgress) {
-                            const loadedBytes = Math.min(fileObj.receivedChunks * (64 * 1024), fileObj.fileSize);
-                            updateProgressBubble(data.msgId, progress, 'Receiving...', loadedBytes, fileObj.fileSize);
-                            fileObj.lastReportedProgress = progress;
-                        }
-                    }
-                } else if (data.type === 'file-end') {
-                    const fileObj = incomingFiles[data.msgId];
-                    if (fileObj) {
-                        const blob = new Blob(fileObj.chunks, { type: fileObj.fileType });
-                        replaceProgressWithMedia(data.msgId, blob, 'received', fileObj.fileName, fileObj.fileType);
-                        trackSharedMedia(blob, fileObj.fileName, fileObj.fileType, fileObj.fileSize);
-                        delete incomingFiles[data.msgId];
-                        conn.send({ type: 'system', action: 'ack', msgId: data.msgId });
-                    }
-                }
-            });
-
-            connection.on('close', () => {
-                updateConnectionStatus('disconnected');
-                showToast("Peer disconnected.", "error");
-                setTimeout(resetApp, 1500);
-            });
-
-            connection.on('error', (err) => {
-                console.error("Connection Error:", err);
-                showToast("Connection lost.", "error");
-                resetApp();
-            });
-        }
-
-        // --- Video Call Logic ---
-        function handleMediaError(err) {
-            if (err.name === 'NotAllowedError') {
-                showToast("Permission denied. Please allow camera/mic access in your browser.", "error");
-            } else if (err.name === 'NotFoundError') {
-                showToast("No camera/microphone found on this device.", "error");
-            } else if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                showToast("Media blocked. Requires HTTPS connection or localhost.", "error");
-            } else {
-                showToast(`Media error: ${err.message}`, "error");
-            }
-            console.error(err);
-        }
-
-        function setupCallUI(type) {
-            const remoteVid = document.getElementById('remote-video');
-            const localVid = document.getElementById('local-video');
-            const audioUI = document.getElementById('audio-only-ui');
-            
-            if (type === 'audio') {
-                remoteVid.classList.add('hidden');
-                localVid.classList.add('hidden');
-                audioUI.classList.remove('hidden');
-                audioUI.classList.add('flex');
-            } else {
-                remoteVid.classList.remove('hidden');
-                localVid.classList.remove('hidden');
-                audioUI.classList.add('hidden');
-                audioUI.classList.remove('flex');
-            }
-        }
-
-        async function initiateCall(type) {
-            activeCallType = type;
-            const constraints = { audio: true, video: type === 'video' };
-            
-            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                return showToast("Your browser blocks media on insecure (HTTP) networks. Use HTTPS or localhost.", "error");
-            }
-
-            try {
-                localStream = await navigator.mediaDevices.getUserMedia(constraints);
-                
-                if (type === 'video') {
-                    document.getElementById('local-video').srcObject = localStream;
-                }
-                
-                setupCallUI(type);
-                document.getElementById('video-modal').classList.remove('hidden');
-                document.getElementById('video-modal').classList.add('flex');
-                
-                currentCall = peer.call(conn.peer, localStream, { metadata: { type: type } });
-                setupCallEvents(currentCall);
-                showToast(`Requesting ${type} call...`, "success");
-            } catch(err) {
-                handleMediaError(err);
-            }
-        }
-
-        async function answerCall(accept) {
-            document.getElementById('incoming-call-modal').classList.add('hidden');
-            document.getElementById('incoming-call-modal').classList.remove('flex');
-            
-            if (accept && incomingCallObj) {
-                const constraints = { audio: true, video: activeCallType === 'video' };
-                
-                try {
-                    localStream = await navigator.mediaDevices.getUserMedia(constraints);
-                    
-                    if (activeCallType === 'video') {
-                        document.getElementById('local-video').srcObject = localStream;
-                    }
-                    
-                    setupCallUI(activeCallType);
-                    document.getElementById('video-modal').classList.remove('hidden');
-                    document.getElementById('video-modal').classList.add('flex');
-                    
-                    incomingCallObj.answer(localStream);
-                    currentCall = incomingCallObj;
-                    setupCallEvents(currentCall);
-                } catch(err) {
-                    handleMediaError(err);
-                }
-            } else if (incomingCallObj) {
-                incomingCallObj.close();
-                incomingCallObj = null;
-            }
-        }
-
-        function setupCallEvents(call) {
-            call.on('stream', (remoteStream) => {
-                const remoteVideo = document.getElementById('remote-video');
-                if (remoteVideo.srcObject !== remoteStream) {
-                    remoteVideo.srcObject = remoteStream;
-                }
-            });
-            call.on('close', () => endVideoCall(false));
-            call.on('error', (err) => {
-                showToast("Video call error", "error");
-                endVideoCall(false);
-            });
-        }
-
-        function endVideoCall(closeCallObj = true) {
-            if (closeCallObj && currentCall) currentCall.close();
-            if (localStream) {
-                localStream.getTracks().forEach(track => track.stop());
-                localStream = null;
-            }
-            document.getElementById('local-video').srcObject = null;
-            document.getElementById('remote-video').srcObject = null;
-            document.getElementById('video-modal').classList.add('hidden');
-            document.getElementById('video-modal').classList.remove('flex');
-            currentCall = null;
-            incomingCallObj = null;
-        }
-
-        function toggleVideoMute() {
-            if(localStream) {
-                isVideoMuted = !isVideoMuted;
-                localStream.getAudioTracks()[0].enabled = !isVideoMuted;
-                const btn = document.getElementById('btn-mute');
-                if(isVideoMuted) {
-                    btn.classList.add('bg-red-500', 'text-white');
-                    btn.classList.remove('bg-gray-700');
-                } else {
-                    btn.classList.remove('bg-red-500', 'text-white');
-                    btn.classList.add('bg-gray-700');
-                }
-            }
-        }
-
-        function toggleTTS() {
-            isTTSActive = !isTTSActive;
-            const btn = document.getElementById('btn-tts-toggle');
-            const iconOff = document.getElementById('icon-tts-off');
-            const iconOn = document.getElementById('icon-tts-on');
-
-            if (isTTSActive) {
-                iconOff.classList.add('hidden');
-                iconOn.classList.remove('hidden');
-                btn.classList.add('bg-blue-900/40');
-                showToast("Read aloud enabled");
-            } else {
-                iconOff.classList.remove('hidden');
-                iconOn.classList.add('hidden');
-                btn.classList.remove('bg-blue-900/40');
-                window.speechSynthesis.cancel(); // Stop current speech immediately
-                showToast("Read aloud disabled");
-            }
-        }
-
-
-        // --- Chat UI Logic ---
-        function sendMessage(e) {
-            e.preventDefault();
-            const input = document.getElementById('chat-input');
-            const msg = input.value.trim();
-            
-            if (!msg || !conn || !conn.open) return;
-
-            const msgId = Date.now().toString() + Math.random().toString(36).substr(2, 5);
-            conn.send({ type: 'chat', text: msg, id: msgId });
-            appendMessage(msg, 'sent', msgId);
-            
-            input.value = '';
-            input.style.height = 'auto'; 
-            input.focus(); 
-        }
-
-        async function handleFileUpload(e) {
-            const files = Array.from(e.target.files);
-            if (!files.length) return;
-            
-            if (!conn || !conn.open) {
-                e.target.value = '';
-                return showToast("Not connected to peer.", "error");
-            }
-
-            // Send sequentially
-            for (const file of files) {
-                await sendFile(file);
-            }
-            
-            e.target.value = ''; 
-            document.getElementById('chat-input').focus();
-        }
-
-        async function sendFile(file) {
-            const msgId = 'file-' + Date.now().toString() + Math.random().toString(36).substr(2, 5);
-            const CHUNK_SIZE = 64 * 1024; // 64KB chunks
-            const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
-
-            createProgressBubble(msgId, 'sent', file.name, 'Sending...', file.size);
-
-            conn.send({
-                type: 'file-start',
-                msgId: msgId,
-                fileName: file.name,
-                fileType: file.type,
-                fileSize: file.size,
-                totalChunks: totalChunks
-            });
-
-            let offset = 0;
-            let chunkIndex = 0;
-            let lastReportedProgress = -1;
-
-            while (offset < file.size) {
-                // Buffer management: prevents crashing the WebRTC data channel on huge files
-                if (conn.dataChannel && conn.dataChannel.bufferedAmount > 8 * 1024 * 1024) {
-                    await new Promise(r => setTimeout(r, 50));
-                    continue;
-                }
-
-                const slice = file.slice(offset, offset + CHUNK_SIZE);
-                const buffer = await slice.arrayBuffer();
-
-                conn.send({
-                    type: 'file-chunk',
-                    msgId: msgId,
-                    index: chunkIndex,
-                    data: buffer
-                });
-
-                offset += CHUNK_SIZE;
-                chunkIndex++;
-
-                const progress = Math.floor((chunkIndex / totalChunks) * 100);
-                if (progress > lastReportedProgress) {
-                    const loadedBytes = Math.min(chunkIndex * CHUNK_SIZE, file.size);
-                    updateProgressBubble(msgId, progress, 'Sending...', loadedBytes, file.size);
-                    lastReportedProgress = progress;
-                }
-            }
-
-            conn.send({
-                type: 'file-end',
-                msgId: msgId
-            });
-
-            replaceProgressWithMedia(msgId, file, 'sent', file.name, file.type);
-            trackSharedMedia(file, file.name, file.type, file.size);
-        }
-
-        function formatBytes(bytes, decimals = 1) {
-            if (!+bytes) return '0 B';
-            const k = 1024;
-            const dm = decimals < 0 ? 0 : decimals;
-            const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-            const i = Math.floor(Math.log(bytes) / Math.log(k));
-            return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
-        }
-
-        function scrollToTop() {
-            const messagesContainer = document.getElementById('chat-messages');
-            requestAnimationFrame(() => {
-                messagesContainer.scrollTop = 0;
-            });
-        }
-
-        function createProgressBubble(msgId, type, fileName, statusText, totalSize) {
-            const colorClass = type === 'sent' ? 'bg-blue-400' : 'bg-emerald-400';
-            const html = `
-                <div class="w-full min-w-[160px] sm:min-w-[200px]">
-                    <div class="flex items-center justify-between mb-1.5 gap-2">
-                        <svg class="w-4 h-4 shrink-0 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
-                        <span class="text-xs font-medium truncate flex-1">${fileName}</span>
-                        <span class="text-[10px] font-bold" id="pct-${msgId}">0%</span>
-                    </div>
-                    <div class="w-full bg-black/20 rounded-full h-1.5 overflow-hidden">
-                        <div id="bar-${msgId}" class="${colorClass} h-1.5 rounded-full transition-all duration-200" style="width: 0%"></div>
-                    </div>
-                    <div class="flex justify-between items-center mt-1">
-                        <div class="text-[9px] font-medium opacity-70 tracking-wide" id="size-text-${msgId}">0 B / ${formatBytes(totalSize)}</div>
-                        <div class="text-[9px] uppercase tracking-wider font-semibold opacity-70 text-right" id="status-text-${msgId}">${statusText}</div>
-                    </div>
-                </div>
-            `;
-            createMessageBubble(html, type, msgId);
-        }
-
-        function updateProgressBubble(msgId, progress, statusText, loadedBytes, totalBytes) {
-            const pctEl = document.getElementById(`pct-${msgId}`);
-            const barEl = document.getElementById(`bar-${msgId}`);
-            const statEl = document.getElementById(`status-text-${msgId}`);
-            const sizeEl = document.getElementById(`size-text-${msgId}`);
-            if (pctEl) pctEl.innerText = `${progress}%`;
-            if (barEl) barEl.style.width = `${progress}%`;
-            if (statEl && statusText) statEl.innerText = statusText;
-            if (sizeEl && totalBytes) sizeEl.innerText = `${formatBytes(loadedBytes)} / ${formatBytes(totalBytes)}`;
-        }
-
-        function createMessageBubble(contentHtml, type, msgId = null) {
-            const messagesContainer = document.getElementById('chat-messages');
-            const msgDiv = document.createElement('div');
-            
-            msgDiv.className = `flex w-full ${type === 'sent' ? 'justify-end' : 'justify-start'} animate-[fadeIn_0.2s_ease-out]`;
-            const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-            
-            const bubbleColors = type === 'sent' 
-                ? 'bg-blue-600 text-white rounded-l-2xl rounded-tr-2xl' 
-                : 'bg-gray-800 text-gray-100 border border-gray-700 rounded-r-2xl rounded-tl-2xl';
-
-            let statusHtml = '';
-            if (type === 'sent' && msgId) {
-                statusHtml = `
-                    <span class="text-[10px] text-gray-500 font-medium px-1 flex items-center justify-end gap-1 mt-0.5" id="status-${msgId}">
-                        ${time}
-                        <svg class="w-3 h-3 text-blue-400 -rotate-90" viewBox="0 0 24 24">
-                            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" fill="none" class="opacity-20" />
-                            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" fill="none" stroke-dasharray="63" stroke-dashoffset="63" class="animate-fill" />
-                        </svg>
-                        <span class="text-blue-400 text-[9px] uppercase tracking-wider font-semibold">Sending</span>
-                    </span>
-                `;
-            } else {
-                statusHtml = `<span class="text-[10px] text-gray-500 font-medium px-1 mt-0.5">${time}</span>`;
-            }
-
-            msgDiv.innerHTML = `
-                <div class="max-w-[80%] sm:max-w-[75%] flex flex-col gap-0.5 ${type === 'sent' ? 'items-end' : 'items-start'}">
-                    <div id="content-${msgId || Math.random().toString(36).substr(2, 5)}" class="px-4 py-2.5 shadow-sm text-[15px] sm:text-sm leading-relaxed ${bubbleColors} overflow-hidden" style="word-break: break-word;">
-                        ${contentHtml}
-                    </div>
-                    ${statusHtml}
-                </div>
-            `;
-            
-            messagesContainer.prepend(msgDiv);
-            scrollToTop();
-        }
-
-        function appendMessage(text, type, msgId = null) {
-            const escapedText = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;").replace(/\n/g, "<br>");
-            createMessageBubble(escapedText, type, msgId);
-        }
-
-        function replaceProgressWithMedia(msgId, fileOrBlob, type, fileName, fileType) {
-            const contentEl = document.getElementById(`content-${msgId}`);
-            if (!contentEl) return;
-
-            const url = URL.createObjectURL(fileOrBlob);
-            const isImage = fileType.startsWith('image/');
-            
-            let contentHtml = '';
-            if (isImage) {
-                contentHtml = `<img src="${url}" alt="${fileName}" class="max-w-full rounded-lg cursor-pointer max-h-[250px] object-contain bg-black/20" onclick="window.open('${url}')" onload="scrollToTop()">`;
-            } else {
-                contentHtml = `
-                    <a href="${url}" download="${fileName}" class="flex items-center gap-2 text-white hover:text-blue-200 underline decoration-white/30 underline-offset-4 active:scale-95 transition-transform">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 18 15 15"/></svg>
-                        <span class="truncate max-w-[150px] sm:max-w-[200px] font-medium">${fileName}</span>
-                    </a>
-                `;
-            }
-            contentEl.innerHTML = contentHtml;
-            
-            if (type === 'sent') {
-                const statusSpan = document.getElementById(`status-${msgId}`);
-                if (statusSpan) {
-                    const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                    statusSpan.innerHTML = `
-                        ${time}
-                        <svg class="w-3.5 h-3.5 text-gray-400 -ml-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <polyline points="20 6 9 17 4 12"></polyline>
-                        </svg>
-                        <span class="text-gray-400 text-[9px] uppercase tracking-wider font-semibold">Sent</span>
-                    `;
-                }
-            }
-        }
-
-        // --- Media Vault Logic ---
-        function trackSharedMedia(blobOrFile, fileName, fileType, fileSize) {
-            sharedMedia.push({
-                name: fileName,
-                type: fileType,
-                size: fileSize,
-                url: URL.createObjectURL(blobOrFile)
-            });
-        }
-
-        function openMediaModal() {
-            const list = document.getElementById('media-list');
-            document.getElementById('media-count').innerText = `${sharedMedia.length} file${sharedMedia.length === 1 ? '' : 's'}`;
-            list.innerHTML = '';
-            
-            if (sharedMedia.length === 0) {
-                list.innerHTML = `
-                    <div class="flex flex-col items-center justify-center h-full text-gray-500 py-12 gap-3">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="opacity-30"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><circle cx="10" cy="13" r="2"/><path d="m16 17-2.7-2.7a1.5 1.5 0 0 0-2.1 0L9 16"/></svg>
-                        <span class="font-medium">No media shared yet</span>
-                    </div>`;
-            } else {
-                sharedMedia.forEach(media => {
-                    const item = document.createElement('div');
-                    item.className = "flex items-center justify-between bg-gray-900 border border-gray-700 p-3 rounded-2xl shadow-sm hover:border-gray-600 transition-colors";
-                    
-                    const isImage = media.type.startsWith('image/');
-                    const iconHtml = isImage 
-                        ? `<img src="${media.url}" class="w-12 h-12 object-cover rounded-xl bg-black/20 shrink-0 border border-gray-700 cursor-pointer" onclick="window.open('${media.url}')" />` 
-                        : `<div class="w-12 h-12 bg-gray-800 border border-gray-700 rounded-xl flex items-center justify-center text-gray-400 shrink-0"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg></div>`;
-
-                    item.innerHTML = `
-                        <div class="flex items-center gap-4 overflow-hidden pr-2">
-                            ${iconHtml}
-                            <div class="flex flex-col overflow-hidden">
-                                <span class="text-sm text-gray-200 font-medium truncate" title="${media.name}">${media.name}</span>
-                                <span class="text-xs text-gray-500 font-medium mt-0.5">${formatBytes(media.size)}</span>
-                            </div>
-                        </div>
-                        <a href="${media.url}" download="${media.name}" class="p-3 bg-blue-600/10 hover:bg-blue-600 text-blue-400 hover:text-white rounded-xl transition-colors border border-blue-500/20 shrink-0" title="Download">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
-                        </a>
-                    `;
-                    list.appendChild(item);
-                });
-            }
-            
-            document.getElementById('media-modal').classList.remove('hidden');
-            document.getElementById('media-modal').classList.add('flex');
-        }
-
-        function closeMediaModal() {
-            document.getElementById('media-modal').classList.add('hidden');
-            document.getElementById('media-modal').classList.remove('flex');
-        }
-
-        function downloadAllMedia() {
-            if (sharedMedia.length === 0) return showToast("No media to download", "warning");
-            
-            showToast(`Downloading ${sharedMedia.length} files...`, "success");
-            
-            // Stagger downloads by 300ms so browsers don't block multiple rapid anchor clicks
-            sharedMedia.forEach((media, index) => {
-                setTimeout(() => {
-                    const a = document.createElement('a');
-                    a.href = media.url;
-                    a.download = media.name;
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                }, index * 300); 
-            });
-        }
-
-        // --- UI Helpers ---
-        function updateConnectionStatus(status) {
-            const indicator = document.getElementById('status-indicator');
-            const text = document.getElementById('connection-status');
-            const videoBtn = document.getElementById('btn-video-call');
-            const voiceBtn = document.getElementById('btn-voice-call');
-            const mediaBtn = document.getElementById('btn-show-media');
-            
-            if (status === 'connected') {
-                indicator.className = 'w-3 h-3 sm:w-2.5 sm:h-2.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]';
-                text.className = 'text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-emerald-400 bg-emerald-500/10 px-3 py-1.5 rounded-full ml-2';
-                text.textContent = 'Connected';
-                videoBtn.classList.remove('hidden');
-                voiceBtn.classList.remove('hidden');
-                mediaBtn.classList.remove('hidden');
-            } else {
-                indicator.className = 'w-3 h-3 sm:w-2.5 sm:h-2.5 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]';
-                text.className = 'text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-red-400 bg-red-500/10 px-3 py-1.5 rounded-full ml-2';
-                text.textContent = 'Disconnected';
-                videoBtn.classList.add('hidden');
-                voiceBtn.classList.add('hidden');
-                mediaBtn.classList.add('hidden');
-            }
-        }
-
-        function copyCode() {
-            if (!myIdCode) {
-                // if they edit the input box but haven't clicked start hosting yet
-                myIdCode = document.getElementById('host-id-input').value.trim();
-            }
-            if (!myIdCode) return;
-            const tempInput = document.createElement("input");
-            tempInput.value = myIdCode;
-            document.body.appendChild(tempInput);
-            tempInput.select();
-            tempInput.setSelectionRange(0, 99999);
-            try {
-                document.execCommand('copy');
-                showToast("Code copied!");
-            } catch (err) {
-                showToast("Failed to copy.", "error");
-            }
-            document.body.removeChild(tempInput);
-        }
-
-        function showToast(message, type = "success") {
-            const container = document.getElementById('toast-container');
-            const toast = document.createElement('div');
-            
-            const bgColor = type === 'success' ? 'bg-emerald-500' : (type === 'warning' ? 'bg-yellow-500' : 'bg-red-500');
-            
-            toast.className = `${bgColor} text-white px-4 py-3 rounded-xl shadow-2xl text-sm font-medium transition-all duration-300 transform translate-y-[-20px] opacity-0 flex items-center gap-3 w-full`;
-            
-            let icon = '';
-            if(type === 'success') icon = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0"><polyline points="20 6 9 17 4 12"/></svg>`;
-            else if (type === 'error') icon = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`;
-            else icon = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`;
-
-            toast.innerHTML = `${icon} <span>${message}</span>`;
-            
-            container.appendChild(toast);
-            
-            requestAnimationFrame(() => {
-                toast.classList.remove('translate-y-[-20px]', 'opacity-0');
-                toast.classList.add('translate-y-0', 'opacity-100');
-            });
-
-            setTimeout(() => {
-                toast.classList.remove('translate-y-0', 'opacity-100');
-                toast.classList.add('translate-y-[-20px]', 'opacity-0');
-                setTimeout(() => toast.remove(), 300);
-            }, 3000);
-        }
-
-        function autoResizeTextarea(el) {
-            el.style.height = 'auto';
-            el.style.height = (el.scrollHeight) + 'px';
-            scrollToTop();
-        }
-
-        function handleEnter(e) {
-            if (e.key === 'Enter' && !e.shiftKey && !('ontouchstart' in window)) {
-                e.preventDefault();
-                sendMessage(e);
-            }
-        }
-    </script>
-</body>
-</html>
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
+<title>P2P Chat</title>
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<style>
+:root{--gap:1.5in;--p:#17212b}
+.kb{--gap:6px}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%;background:#0e1621;color:#e8eef5;font:15px system-ui,sans-serif;overflow:hidden}
+button{font:inherit;color:inherit;border:0;cursor:pointer;border-radius:50%;background:#2a3b4d}
+#app{height:var(--vh,100dvh);display:flex;flex-direction:column}
+#scan{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;color:#6fa8e8}
+.radar{width:min(70vw,320px);aspect-ratio:1;border-radius:50%;border:2px solid #2b7cd3;position:relative;overflow:hidden;background:repeating-radial-gradient(#0000 0 38px,#2b7cd344 39px 40px)}
+.radar::after{content:"";position:absolute;inset:0;border-radius:50%;background:conic-gradient(#2b7cd3cc,#0000 25%);animation:sp 2s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+#chat{flex:1;display:none;flex-direction:column;min-height:0}
+.hd{flex:none;display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--p)}
+.hd .t{flex:1;min-width:0}
+select{width:100%;background:none;color:inherit;border:0;font:600 17px system-ui}
+select option{color:#000}
+.sub{font-size:12px;color:#8a9aa9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-left:4px}
+.ib{width:42px;height:42px;font-size:19px;flex:none}
+#msgs{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:10px;display:flex;flex-direction:column;gap:6px}
+.b{max-width:78%;padding:7px 10px;border-radius:12px;word-break:break-word;white-space:pre-wrap}
+.me{align-self:flex-end;background:#2b5278}.ot{align-self:flex-start;background:#182533}
+.b small{display:block;font-size:11px;opacity:.6}
+.b img,.b video{max-width:100%;border-radius:8px;display:block;margin-bottom:4px}
+.fb{display:flex;gap:6px;margin-top:4px}
+.fb a{background:#0005;color:#fff;padding:4px 10px;border-radius:8px;text-decoration:none;font-size:13px}
+.cp{flex:none;display:flex;gap:6px;align-items:flex-end;padding:8px;margin-bottom:var(--gap);background:var(--p)}
+.cp textarea{flex:1;max-height:110px;resize:none;border:0;border-radius:20px;padding:10px 14px;background:#0e1621;color:inherit;font:inherit}
+.ov{position:fixed;inset:0;display:none;align-items:center;justify-content:center;flex-direction:column;gap:14px;background:#000c;z-index:9}
+.box{background:var(--p);padding:22px;border-radius:14px;display:flex;flex-direction:column;gap:12px;width:min(88vw,340px);text-align:center}
+.box input{padding:10px;border-radius:8px;border:0;background:#0e1621;color:inherit;font:inherit}
+.box button,.rb{border-radius:10px;padding:10px;background:#2b7cd3}
+#call{background:#000;z-index:10;gap:0;justify-content:flex-start}
+#grid{flex:1;min-height:0;width:100%;display:grid;grid-template-columns:repeat(var(--n,1),1fr);gap:3px}
+.tile{position:relative;background:#111;overflow:hidden;min-height:0}
+.tile video{width:100%;height:100%;object-fit:cover}
+.nm{position:absolute;left:8px;bottom:8px;background:#0008;padding:2px 8px;border-radius:8px;font-size:13px}
+#lv{position:absolute;top:10px;right:10px;width:90px;aspect-ratio:9/16;object-fit:cover;border-radius:10px;border:1px solid #fff4;background:#222}
+.ctl{display:flex;gap:14px;align-items:center;justify-content:center;padding:14px 10px;margin-bottom:var(--gap);flex-wrap:wrap}
+.ctl button{width:54px;height:54px;font-size:22px}
+.ctl .on{background:#d33}
+#bh{width:84px;height:84px;background:#e11;font-size:34px}
+</style></head><body>
+<div id="app">
+ <div id="scan"><div class="radar"></div><div>Scanning…</div></div>
+ <div id="chat">
+  <div class="hd"><div class="t"><select id="sel"></select><div class="sub" id="sub"></div></div>
+   <button class="ib" id="vc">📞</button><button class="ib" id="vv">🎥</button></div>
+  <div id="msgs"></div>
+  <div class="cp"><button class="ib" id="att">📎</button><textarea id="inp" rows="1" placeholder="Message"></textarea><button class="ib" id="snd" style="background:#2b7cd3">➤</button></div>
+ </div>
+</div>
+<input type="file" id="fi" multiple hidden>
+<div class="ov" id="nm"><div class="box"><b>Enter your name</b><input id="ni" maxlength="30" placeholder="Name"><button id="go">Start</button></div></div>
+<div class="ov" id="ring"><div class="box"><b id="rt"></b><button id="ra">Accept</button><button id="rd" style="background:#d33">Deny</button></div></div>
+<div class="ov" id="call"><div id="grid"></div><video id="lv" autoplay playsinline muted></video>
+ <div class="ctl"><button id="bm">🎤</button><button id="bc">📷</button><button id="bf">🔄</button><button id="br">⏺</button><button id="bh">📞</button></div></div>
+<script>
+const CODE="#+__7284kwrufi28388(#)#)92273+-29393943473755+#892{¢{€{¥÷`°°|°•=√§^§¥}€{`[|==•×``×+2+#+$8_8&829298347474++2+#9$9$8'v6b6wiwijrhth94(4";
+const ICE={iceServers:[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'},{urls:['turn:openrelay.metered.ca:80','turn:openrelay.metered.ca:443','turn:openrelay.metered.ca:443?transport=tcp'],username:'openrelayproject',credential:'openrelayproject'}]};
+const $=i=>document.getElementById(i),sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e};
+const fmt=s=>s>1e6?(s/1e6).toFixed(1)+' MB':Math.ceil(s/1e3)+' KB';
+let myName=localStorage.getItem('pc_name'),main,hubP,hubBusy,hubId,cur='g',peers={},pend={},files={},inc={},call=null,H=0,unread=new Set(),hist=[];
+try{hist=JSON.parse(localStorage.getItem('pc_hist')||'[]')}catch(e){}
+const save=()=>{try{localStorage.setItem('pc_hist',JSON.stringify(hist.filter(m=>!m.f).slice(-500)))}catch(e){}};
+
+/* ---------- viewport / keyboard ---------- */
+const vv=window.visualViewport;
+function fit(){const h=vv?vv.height:innerHeight;H=Math.max(H,innerHeight);document.documentElement.style.setProperty('--vh',h+'px');document.body.classList.toggle('kb',h<H-150);const m=$('msgs');m.scrollTop=m.scrollHeight}
+vv&&vv.addEventListener('resize',fit);addEventListener('resize',fit);addEventListener('orientationchange',()=>{H=0;setTimeout(fit,300)});fit();
+
+/* ---------- discovery: claim hub id or join it, retried until connected ---------- */
+async function start(){
+ const h=new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(CODE)));
+ hubId='pc'+[...h].slice(0,16).map(b=>b.toString(16).padStart(2,'0')).join('');
+ main=new Peer({config:ICE});
+ main.on('open',loop);main.on('connection',setup);main.on('call',onCall);
+ main.on('disconnected',()=>{try{main.reconnect()}catch(e){}});
+ main.on('error',()=>{});
+}
+function loop(){tryHub();if(!Object.keys(peers).length&&hubP)join(0);setTimeout(loop,1000+Math.random()*3000)}
+function tryHub(){
+ if(hubP||hubBusy)return;hubBusy=1;
+ const p=new Peer(hubId,{config:ICE});
+ p.on('open',()=>{hubP=p;hubBusy=0});
+ p.on('connection',c=>c.on('open',()=>c.send({t:'list',l:[main.id,...Object.keys(peers)]})));
+ p.on('disconnected',()=>{try{p.reconnect()}catch(e){}});
+ p.on('close',()=>{if(hubP===p)hubP=null;hubBusy=0});
+ p.on('error',e=>{hubBusy=0;if(e.type==='unavailable-id'){p.destroy();if(!Object.keys(peers).length)join()}else if(!p.open)p.destroy()});
+}
+function join(){
+ const c=main.connect(hubId);
+ c.on('data',d=>{if(d.t==='list')d.l.forEach(connect);c.close()});
+ setTimeout(()=>{if(!c.open)c.close()},6000);
+}
+function connect(id){if(id===main.id||peers[id]||pend[id])return;pend[id]=1;setup(main.connect(id,{reliable:true}))}
+function setup(c){
+ c.on('open',()=>{delete pend[c.peer];if(peers[c.peer]){c.close();return}peers[c.peer]={c,name:'…'};c.send({t:'hi',name:myName});render()});
+ c.on('data',d=>onData(c,d));
+ const x=()=>{delete pend[c.peer];if(peers[c.peer]&&peers[c.peer].c===c){delete peers[c.peer];render()}};
+ c.on('close',x);c.on('error',x);
+}
+function onData(c,d){
+ const P=peers[c.peer];if(!P||P.c!==c)return;
+ if(d.t==='hi'){P.name=d.name||'?';c.send({t:'peers',l:Object.keys(peers).filter(i=>i!==c.peer)});render()}
+ else if(d.t==='peers')d.l.forEach(connect);
+ else if(d.t==='m')addMsg(d.g?'g':'p:'+P.name,{name:P.name,text:d.text,ts:d.ts});
+ else if(d.t==='fm')files[d.id]={m:d,ch:[]};
+ else if(d.t==='fc'){const f=files[d.id];f&&f.ch.push(d.d)}
+ else if(d.t==='fe'){const f=files[d.id];if(!f)return;delete files[d.id];const m=f.m;
+  addMsg(m.g?'g':'p:'+P.name,{name:P.name,ts:m.ts,f:{n:m.n,s:m.s,y:m.y||'',u:URL.createObjectURL(new Blob(f.ch,{type:m.y||''}))}})}
+}
+
+/* ---------- chat ---------- */
+const key=()=>cur==='g'?'g':'p:'+(peers[cur]?peers[cur].name:'');
+const targets=()=>cur==='g'?Object.values(peers).map(p=>p.c):(peers[cur]?[peers[cur].c]:[]);
+function render(){
+ const ids=Object.keys(peers),n=ids.length;
+ $('scan').style.display=n?'none':'flex';$('chat').style.display=n?'flex':'none';
+ if(!n)return;
+ if(n===1)cur=ids[0];else if(cur!=='g'&&!peers[cur])cur='g';
+ showMsgs();
+ const s=$('sel');s.innerHTML='';
+ const add=(v,t)=>{const k=v==='g'?'g':'p:'+peers[v].name;const o=el('option',0,t+(unread.has(k)?' •':''));o.value=v;s.appendChild(o)};
+ if(n>1)add('g','Group chat');ids.forEach(i=>add(i,peers[i].name));
+ s.value=cur;
+ $('sub').textContent=cur==='g'?[myName,...ids.map(i=>peers[i].name)].join(', ')+' - groupchat':'';
+}
+function showMsgs(){const b=$('msgs'),k=key();unread.delete(k);b.innerHTML='';hist.filter(m=>m.k===k).forEach(m=>b.appendChild(bubble(m)));b.scrollTop=b.scrollHeight}
+function bubble(m){
+ const b=el('div','b '+(m.me?'me':'ot'));
+ if(!m.me&&m.k==='g')b.appendChild(el('small',0,m.name));
+ if(m.f){const f=m.f;
+  if(/^image/.test(f.y)){const i=el('img');i.src=f.u;b.appendChild(i)}
+  else if(/^video/.test(f.y)){const v=el('video');v.src=f.u;v.controls=true;v.playsInline=true;b.appendChild(v)}
+  b.appendChild(el('div',0,f.n+' ('+fmt(f.s)+')'));
+  const r=el('div','fb'),o=el('a',0,'Open'),d=el('a',0,'Download');o.href=d.href=f.u;o.target='_blank';d.download=f.n;r.append(o,d);b.appendChild(r);
+ }else b.appendChild(document.createTextNode(m.text));
+ return b}
+function addMsg(k,m){m.k=k;hist.push(m);save();
+ if(k===key()){const b=$('msgs');b.appendChild(bubble(m));b.scrollTop=b.scrollHeight}else{unread.add(k);render()}}
+function sendText(){
+ const t=$('inp').value.trim();if(!t)return;
+ const m={t:'m',g:cur==='g'?1:0,text:t,ts:Date.now()};
+ targets().forEach(c=>{try{c.send(m)}catch(e){}});
+ addMsg(key(),{me:1,name:myName,text:t,ts:m.ts});$('inp').value='';$('inp').style.height='';
+}
+async function sendFiles(list){
+ const T=targets(),g=cur==='g'?1:0,k=key();
+ for(const f of list){
+  const id=Math.random().toString(36).slice(2),ts=Date.now(),y=f.type||'';
+  addMsg(k,{me:1,name:myName,ts,f:{n:f.name,s:f.size,y,u:URL.createObjectURL(f)}});
+  T.forEach(c=>c.send({t:'fm',id,n:f.name,s:f.size,y,g,ts}));
+  for(let o=0;o<f.size;o+=65536){
+   const d=await f.slice(o,o+65536).arrayBuffer();
+   for(const c of T){while(c.dataChannel&&c.dataChannel.bufferedAmount>4e6)await sleep(25);try{c.send({t:'fc',id,d})}catch(e){}}
+  }
+  T.forEach(c=>{try{c.send({t:'fe',id})}catch(e){}});
+ }}
+$('sel').onchange=e=>{cur=e.target.value;render()};
+$('snd').onclick=sendText;
+$('inp').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!/Mobi|Android/i.test(navigator.userAgent)){e.preventDefault();sendText()}});
+$('inp').addEventListener('input',e=>{e.target.style.height='auto';e.target.style.height=Math.min(110,e.target.scrollHeight)+'px'});
+$('inp').addEventListener('focus',()=>setTimeout(fit,350));
+$('att').onclick=()=>$('fi').click();
+$('fi').onchange=e=>{sendFiles([...e.target.files]);e.target.value=''};
+
+/* ---------- calls ---------- */
+const vc=f=>({facingMode:f,width:{ideal:720},height:{ideal:1280},aspectRatio:{ideal:9/16}});
+async function media(v){try{return await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true},video:v?vc('user'):false})}catch(e){alert('Camera/mic unavailable: '+e.message)}}
+async function startCall(v){
+ if(call)return;
+ const ids=cur==='g'?Object.keys(peers).slice(0,3):[cur];if(!ids.length)return;
+ const s=await media(v);if(!s)return;
+ beginCall(Math.random().toString(36).slice(2),v,s,[main.id,...ids]);
+ ids.forEach(dial);
+}
+function beginCall(gid,video,s,members){
+ call={gid,video,stream:s,calls:{},streams:{},members,facing:'user',rec:null};
+ $('call').style.display='flex';$('bc').style.display=$('bf').style.display=$('lv').style.display=video?'':'none';
+ $('lv').srcObject=s;$('bm').textContent='🎤';$('bc').textContent='📷';$('br').classList.remove('on');
+}
+function dial(id){hook(main.call(id,call.stream,{metadata:{gid:call.gid,video:call.video,members:call.members,from:myName}}),id)}
+function hook(c,id){call.calls[id]=c;c.on('stream',s=>addTile(id,s));const x=()=>dropCall(id);c.on('close',x);c.on('error',x)}
+function answer(c){c.answer(call.stream);hook(c,c.peer)}
+function onCall(c){
+ const m=c.metadata||{};
+ if(call){if(call.gid===m.gid)answer(c);else c.close();return}
+ const I=inc[m.gid]=inc[m.gid]||{calls:[],m};I.calls.push(c);
+ c.on('close',()=>{const J=inc[m.gid];if(J){J.calls=J.calls.filter(x=>x!==c);if(!J.calls.length){delete inc[m.gid];$('ring').style.display='none'}}});
+ if(I.calls.length===1)ring(m.gid);
+}
+function ring(g){
+ const m=inc[g].m;
+ $('rt').textContent=m.from+' is '+(m.video?'video':'voice')+' calling'+(m.members.length>2?' (group)':'');
+ $('ring').style.display='flex';
+ $('ra').onclick=async()=>{
+  $('ring').style.display='none';const I=inc[g];if(!I)return;delete inc[g];
+  const s=await media(m.video);if(!s){I.calls.forEach(c=>c.close());return}
+  beginCall(g,m.video,s,m.members);I.calls.forEach(answer);
+  m.members.forEach(i=>{if(i!==main.id&&!call.calls[i]&&main.id<i&&peers[i])dial(i)});
+ };
+ $('rd').onclick=()=>{$('ring').style.display='none';const I=inc[g];if(I){delete inc[g];I.calls.forEach(c=>c.close())}};
+}
+function addTile(id,s){
+ if(!call)return;call.streams[id]=s;
+ let t=$('t'+id);
+ if(!t){t=el('div','tile');t.id='t'+id;const v=el('video');v.autoplay=v.playsInline=true;t.append(v,el('span','nm',(peers[id]||{}).name||''));$('grid').appendChild(t)}
+ t.firstChild.srcObject=s;lay();
+}
+const lay=()=>$('grid').style.setProperty('--n',Math.min(2,Math.max(1,$('grid').children.length)));
+function dropCall(id){
+ if(!call)return;delete call.calls[id];delete call.streams[id];
+ const t=$('t'+id);t&&t.remove();lay();
+ if(!Object.keys(call.calls).length)hang();
+}
+function hang(){
+ if(!call)return;const c=call;call=null;
+ if(c.rec)c.rec.stop();
+ Object.values(c.calls).forEach(x=>{try{x.close()}catch(e){}});
+ c.stream.getTracks().forEach(t=>t.stop());
+ $('call').style.display='none';$('grid').innerHTML='';
+}
+$('vc').onclick=()=>startCall(false);$('vv').onclick=()=>startCall(true);$('bh').onclick=hang;
+$('bm').onclick=()=>{const t=call.stream.getAudioTracks(),on=!t[0].enabled;t.forEach(x=>x.enabled=on);$('bm').textContent=on?'🎤':'🔇'};
+$('bc').onclick=()=>{const t=call.stream.getVideoTracks(),on=!t[0].enabled;t.forEach(x=>x.enabled=on);$('bc').textContent=on?'📷':'🚫'};
+$('bf').onclick=async()=>{
+ try{
+  const c=call,old=c.stream.getVideoTracks()[0],en=old.enabled;c.facing=c.facing==='user'?'environment':'user';
+  old.stop();
+  const nt=(await navigator.mediaDevices.getUserMedia({video:vc(c.facing)})).getVideoTracks()[0];nt.enabled=en;
+  c.stream.removeTrack(old);c.stream.addTrack(nt);
+  Object.values(c.calls).forEach(x=>{const s=x.peerConnection.getSenders().find(s=>s.track&&s.track.kind==='video');s&&s.replaceTrack(nt)});
+  $('lv').style.transform=c.facing==='user'?'scaleX(-1)':'';
+ }catch(e){alert('Cannot switch camera')}
+};
+$('br').onclick=()=>{
+ const c=call;if(c.rec){c.rec.stop();return}
+ const ac=new AudioContext(),d=ac.createMediaStreamDestination(),vt=[];
+ [c.stream,...Object.values(c.streams)].forEach(s=>{
+  if(s.getAudioTracks().length)ac.createMediaStreamSource(s).connect(d);
+  if(s!==c.stream&&!vt.length&&s.getVideoTracks()[0])vt.push(s.getVideoTracks()[0]);
+ });
+ const r=new MediaRecorder(new MediaStream([...d.stream.getAudioTracks(),...vt])),ch=[];
+ r.ondataavailable=e=>e.data.size&&ch.push(e.data);
+ r.onstop=()=>{const a=el('a');a.href=URL.createObjectURL(new Blob(ch,{type:r.mimeType}));a.download='recording-'+Date.now()+'.webm';a.click();ac.close();c.rec=null;$('br').classList.remove('on')};
+ r.start();c.rec=r;$('br').classList.add('on');
+};
+
+/* ---------- boot ---------- */
+function askName(){
+ $('nm').style.display='flex';
+ const go=()=>{const v=$('ni').value.trim();if(!v)return;myName=v;localStorage.setItem('pc_name',v);$('nm').style.display='none';start()};
+ $('go').onclick=go;$('ni').addEventListener('keydown',e=>{if(e.key==='Enter')go()});
+}
+myName?start():askName();
+</script></body></html>
